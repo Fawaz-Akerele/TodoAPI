@@ -1,0 +1,62 @@
+name: Deploy to Production
+                                                    
+on:       
+  push:                                          
+    branches:                                       
+      - main                                        
+                                                    
+jobs:    
+  deploy:                                       
+    runs-on: [self-hosted, prod-vm]                
+    environment: production                         
+                                                    
+    steps:                                          
+                                                    
+      - name: Checkout code
+        uses: actions/checkout@v4
+                                                    
+      - name: Setup .NET 8    
+        uses: actions/setup-dotnet@v4               
+        with:                                      
+          dotnet-version: '8.0.x'                
+                                                    
+      - name: Restore dependencies                
+        run: dotnet restore                       
+                                                    
+      - name: Build                         
+        run: dotnet build --configuration Release --no-restore 
+                                                    
+      - name: Run tests             
+        run: dotnet test --no-restore --verbosity normal
+                                                    
+      - name: Publish                   
+        run: dotnet publish --configuration Release --output .\publish
+                                                    
+      - name: Backup current production files
+        shell: powershell       
+        run: | 
+          $ts = Get-Date -Format 'yyyyMMdd_HHmmss'  
+          $backup = 'C:\Backups\myapi-' + $ts       
+          New-Item -ItemType Directory -Force -Path 'C:\Backups'
+          Copy-Item -Path '${{ secrets.APP_DEPLOY_PATH }}'
+            -Destination $backup -Recurse -Force    
+          Write-Host "Backup saved to: $backup"  
+                                                    
+      - name: Stop IIS App Pool 
+        shell: powershell                           
+        run: |                                      
+          Import-Module WebAdministration
+          Stop-WebAppPool -Name '${{ secrets.IIS_APP_POOL_NAME }}'
+                                                    
+      - name: Deploy files
+        shell: powershell                           
+        run: |                                      
+          Copy-Item -Path .\publish\*
+            -Destination '${{ secrets.APP_DEPLOY_PATH }}'
+            -Recurse -Force 
+                                                    
+      - name: Start IIS App Pool
+        shell: powershell                           
+        run: |                                      
+          Import-Module WebAdministration           
+          Start-WebAppPool -Name '${{ secrets.IIS_APP_POOL_NAME }}'
